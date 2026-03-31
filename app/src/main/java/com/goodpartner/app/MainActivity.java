@@ -27,6 +27,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
 
 import java.util.Calendar;
 
@@ -40,14 +41,13 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Full edge-to-edge immersive display
+        // Keep the app visible above the system bars on phones with gesture/navigation bars.
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.parseColor("#ff6fb8"));
+            getWindow().setNavigationBarColor(Color.parseColor("#fffbf0"));
         }
 
         setContentView(R.layout.activity_main);
