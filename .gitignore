@@ -1,0 +1,20 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Never commit the keystore - keep it safe offline
+*.jks
+*.keystore
+*_base64.txt
+*_b64.txt
+
+# Build outputs
+app/build/
+dist/
