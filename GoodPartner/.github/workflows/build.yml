@@ -1,0 +1,95 @@
+name: Build Signed APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Java 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # 3. Install Gradle 8.6 via official action
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.6'
+
+      # 4. Generate gradle wrapper (so ./gradlew works)
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.6
+
+      # 5. Make gradlew executable
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # 6. Decode the keystore from GitHub secret
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
+          echo "Keystore size: $(wc -c < app/keystore.jks) bytes"
+
+      # 7. Cache Gradle
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      # 8. Build signed release APK
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: app/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      # 9. Stage the APK with a friendly name
+      - name: Stage APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dist/GoodPartner-$(date +'%Y%m%d-%H%M').apk"
+          echo "APK ready: $(ls dist/)"
+
+      # 10. Upload as downloadable artifact (stays 30 days)
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoodPartner-APK
+          path: dist/*.apk
+          retention-days: 30
+
+      # 11. Write a nice summary to the Actions run page
+      - name: Build summary
+        run: |
+          APK=$(ls dist/*.apk)
+          SIZE=$(du -sh "$APK" | cut -f1)
+          echo "## ✅ Build complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **APK** | $(basename $APK) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Size** | $SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 Install on your phone" >> $GITHUB_STEP_SUMMARY
+          echo "1. Click **Artifacts → GoodPartner-APK** at the bottom of this run page" >> $GITHUB_STEP_SUMMARY
+          echo "2. Unzip the download on your phone (or PC then transfer)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Phone: **Settings → Security → Install unknown apps** → allow your browser/Files app" >> $GITHUB_STEP_SUMMARY
+          echo "4. Tap the APK → Install → Done!" >> $GITHUB_STEP_SUMMARY
