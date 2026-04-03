@@ -30,10 +30,29 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Decode keystore
+      - name: Set up keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
-          echo "Keystore size: $(wc -c < app/keystore.jks) bytes"
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using keystore from secrets..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          else
+            echo "Generating temporary keystore for testing..."
+            keytool -genkey -v \
+              -keystore app/keystore.jks \
+              -alias goodpartner \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass goodpartner123 \
+              -keypass goodpartner123 \
+              -dname "CN=Good Partner, OU=App, O=Daniel, L=Unknown, S=Unknown, C=AU"
+            echo "KEYSTORE_PASSWORD=goodpartner123" >> $GITHUB_ENV
+            echo "KEY_ALIAS=goodpartner" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=goodpartner123" >> $GITHUB_ENV
+          fi
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
@@ -47,9 +66,9 @@ jobs:
       - name: Build release APK
         env:
           KEYSTORE_PATH: app/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace
 
       - name: Stage APK
@@ -79,4 +98,4 @@ jobs:
           echo "1. Tap **Artifacts → GoodPartner-APK** below" >> $GITHUB_STEP_SUMMARY
           echo "2. Unzip and open the APK" >> $GITHUB_STEP_SUMMARY
           echo "3. Settings → Security → Install unknown apps → allow Files app" >> $GITHUB_STEP_SUMMARY
-          echo "4. Tap Install — done!" >> $GITHUB_STEP_SUMMARY
+          echo "4. Tap Install!" >> $GITHUB_STEP_SUMMARY
