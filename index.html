@@ -348,6 +348,47 @@ function fallbackMore(){
   else toast('No more tasks — enable more in the pool!','#ff9800');
 }
 
+let replacingId=null;
+async function replaceTask(id){
+  if(!S.signedInToday){toast('Check in first!','#ffb347');return;}
+  if(S.done.includes(id)){toast("Can't replace a completed task!",'#ff9800');return;}
+  // Remove the task from today's list
+  const removedSlot=(S.todayTasks||[]).find(t=>t.id===id);
+  S.todayTasks=(S.todayTasks||[]).filter(t=>t.id!==id);
+  const todaySet=new Set((S.todayTasks||[]).map(t=>t.id));
+  // Also exclude the removed id so it doesn't come back today
+  const excluded=new Set([...todaySet,id]);
+  const available=enabledPool().filter(t=>!excluded.has(t.id));
+  if(!available.length){save();render();toast('No alternatives in your pool!','#ff9800');return;}
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-14);
+  const recent=(S.taskHistory||[]).filter(h=>new Date(h.date)>=cutoff).map(h=>h.id).join(',')||'none';
+  const today=(S.todayTasks||[]).map(t=>enabledPool().find(x=>x.id===t.id)?.title||t.id).join(', ')||'none';
+  const busy=getBusySlots().map(b=>`${fmtMins(b.start)}-${fmtMins(b.end)}`).join(', ')||'none';
+  const prompt=`Pick ONE replacement task. The user didn't want their current task today — pick something different and suitable.\nAvailable:\n${available.map(t=>`${t.id}|${t.em} ${t.title}|${t.pts}pts`).join('\n')}\nOther tasks today: ${today}\nSchedule busy: ${busy}\nRecent IDs to avoid: ${recent}\nJSON only: {"id":"task_id"}`;
+  replacingId=id;render();
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:prompt}]})});
+    const data=await res.json();
+    const parsed=JSON.parse((data.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim());
+    const task=available.find(t=>t.id===parsed.id);
+    if(task){
+      // Put new task in the same time slot as the removed one
+      S.todayTasks=[...(S.todayTasks||[]),{id:task.id,startMin:removedSlot?.startMin||null,endMin:removedSlot?.endMin||null}];
+      await save();toast(`Swapped for: ${task.em} ${task.title}`);
+    } else {
+      // Fallback: pick random from available
+      const fallback=available[Math.floor(Math.random()*available.length)];
+      S.todayTasks=[...(S.todayTasks||[]),{id:fallback.id,startMin:removedSlot?.startMin||null,endMin:removedSlot?.endMin||null}];
+      await save();toast(`Swapped for: ${fallback.em} ${fallback.title}`);
+    }
+  }catch(e){
+    const fallback=available[Math.floor(Math.random()*available.length)];
+    S.todayTasks=[...(S.todayTasks||[]),{id:fallback.id,startMin:removedSlot?.startMin||null,endMin:removedSlot?.endMin||null}];
+    await save();toast(`Swapped for: ${fallback.em} ${fallback.title}`);
+  }
+  replacingId=null;render();
+}
+
 function togglePool(id){S.disabledPool=S.disabledPool||[];const i=S.disabledPool.indexOf(id);if(i>=0)S.disabledPool.splice(i,1);else S.disabledPool.push(id);save();render();}
 
 // ── Pinned task CRUD ─────────────────────────────────────────────────────────
@@ -475,6 +516,18 @@ function homeHTML(t){
 
   const moreBtn=aiLoading?`<div style="text-align:center;padding:8px;font-size:13px;font-weight:800;color:${t.sub}"><span style="display:inline-block;animation:spin 0.9s linear infinite">✦</span> Finding a gap…</div>`:`<button class="abtn" onclick="askForMore()" style="width:100%;padding:10px;border-radius:12px;background:${t.card};border:2px dashed ${t.ac}70;color:${t.ac};font-size:13px;margin-top:4px">+ Ask for another task ✨</button>`;
 
+  // AI task rows with per-task swap button
+  const aiTaskRows=aiTasks.map(({task,slot})=>{
+    const isDone=S.done.includes(task.id);
+    const isReplacing=replacingId===task.id;
+    const row=taskRow(task,slot);
+    if(isDone)return row;
+    const swapBtn=isReplacing
+      ?`<div style="display:flex;align-items:center;justify-content:center;gap:5px;padding:5px 0 2px;font-size:11px;font-weight:800;color:${t.sub}"><span style="display:inline-block;animation:spin 0.9s linear infinite">✦</span> Swapping…</div>`
+      :`<div style="text-align:right;padding:0 2px 4px"><button onclick="event.stopPropagation();replaceTask('${task.id}')" style="border:none;background:none;cursor:pointer;font-size:10px;font-weight:900;color:${t.sub};font-family:'Nunito',sans-serif;padding:2px 4px;border-radius:6px" title="Swap for a different task">🔄 not relevant today?</button></div>`;
+    return`<div>${row}${swapBtn}</div>`;
+  }).join('');
+
   // Weekly/monthly tasks done this period — show a quiet summary
   const hiddenPinned=(S.pinnedTasks||[]).filter(p=>!showPinnedToday(p));
   const hiddenNote=hiddenPinned.length?`<div style="background:${t.card};border:2px solid ${t.bdr};border-radius:10px;padding:7px 11px;margin-bottom:8px;font-size:11px;font-weight:700;color:${t.sub}">
@@ -487,7 +540,7 @@ function homeHTML(t){
   ${pinned.length?`<div style="font-size:9px;font-weight:900;letter-spacing:0.12em;color:#f9a825;text-transform:uppercase;margin-bottom:5px">📌 Daily Must-Dos</div>${pinned.map(task=>taskRow(task,null)).join('')}`:''}
   ${sched.length?`<div style="font-size:9px;font-weight:900;letter-spacing:0.12em;color:#42a5f5;text-transform:uppercase;margin:7px 0 5px">📅 Today's Schedule</div>${sched.map(task=>taskRow(task,null,false)).join('')}`:''}
   <div style="font-size:9px;font-weight:900;letter-spacing:0.12em;color:${t.ac};text-transform:uppercase;margin:7px 0 5px">✨ Acts of Love</div>
-  ${aiTasks.map(({task,slot})=>taskRow(task,slot)).join('')}${moreBtn}`;
+  ${aiTaskRows}${moreBtn}`;
 }
 
 // ── Tasks screen ─────────────────────────────────────────────────────────────
@@ -758,6 +811,22 @@ function render(){
 }
 
 load();
+
+// ── Midnight reset ────────────────────────────────────────────────────────────
+// Check every 60s if the date has changed. If it has, reset to the check-in
+// screen automatically — no need to rely on the notification.
+setInterval(()=>{
+  if(S.signedInToday && S.lastSignIn && S.lastSignIn!==td()){
+    S.signedInToday=false;
+    S.done=[];
+    S.lateIds=[];
+    S.todayTasks=[];
+    save();
+    curtab='home';
+    render();
+    toast('Good morning! Time to check in 🌈','#ff6fb8');
+  }
+}, 60000);
 </script>
 </body>
 </html>
