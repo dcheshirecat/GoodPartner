@@ -32,6 +32,7 @@ jobs:
 
       - name: Set up keystore
         run: |
+          mkdir -p app
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Using keystore from secrets..."
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
@@ -53,6 +54,7 @@ jobs:
             echo "KEY_ALIAS=goodpartner" >> $GITHUB_ENV
             echo "KEY_PASSWORD=goodpartner123" >> $GITHUB_ENV
           fi
+          echo "Keystore size: $(wc -c < app/keystore.jks) bytes"
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
